@@ -333,7 +333,41 @@ Return nil if element cannot be parsed."
 	       :visible-end ,(pcase elem-tag
 			       ('emph (1- elem-end-real))
 			       ('script elem-content-end)
-			       ('link (or elem-content-end (- elem-end-real 2))))))))
+			       ('link (or elem-content-end (- elem-end-real
+							      2))))))))
+
+(defun org-appear--latex-preview-end-calculation (elem)
+  (- (org-element-property :end elem)
+     (or (org-element-property :post-blank elem) 0)
+     (if (eq (char-before (org-element-property :end elem))
+             ?\n)
+         1 0)))
+
+(defun org-appear--show-latex-source (elem)
+  (let ((start (org-element-property :begin elem))
+	(end (org-appear--latex-preview-end-calculation elem)))
+    (when (seq-some (lambda (ov)
+		      (and (= (overlay-start ov) start)
+			   (= (overlay-end ov) end)
+			   (eq (overlay-get ov 'org-overlay-type)
+			       'org-latex-overlay)))
+		    (overlays-at start))
+      (condition-case err
+	  (org-latex-preview 'point)
+	(t (message "org-appear-mode: org-latex-preview barfed %s" err))))))
+
+(defun org-appear--hide-latex-with-preview (elem)
+  (let ((start (org-element-property :begin elem))
+	(end (org-appear--latex-preview-end-calculation elem)))
+    (unless (seq-some (lambda (ov)
+			(and (= (overlay-start ov) start)
+			     (= (overlay-end ov) end)
+			     (eq (overlay-get ov 'org-overlay-type)
+				 'org-latex-overlay)))
+		      (overlays-at start))
+      (condition-case err
+	  (org-latex-preview 'point)
+	(t (message "org-appear-mode: org-latex-preview barfed %s" err))))))
 
 (defun org-appear--show-invisible (elem)
   "Silently remove invisible property from invisible parts of element ELEM."
@@ -354,7 +388,8 @@ Return nil if element cannot be parsed."
 	     (when org-appear-autosubmarkers
 	       (remove-text-properties start end '(invisible)))
 	     (when org-appear-autoentities
-	       (decompose-region start end)))
+	       (decompose-region start end))
+	     (org-appear--show-latex-source elem))
 	    ((eq elem-type 'keyword)
 	     (remove-text-properties start end '(invisible org-link)))
 	    ((and (featurep 'org-fold)
@@ -404,7 +439,8 @@ When RENEW is non-nil, obtain element at point instead."
 	       (compose-region start end (org-element-property :utf-8 elem))
 	       (font-lock-flush start end))
 	      ((memq elem-type '(keyword latex-fragment latex-environment))
-	       (font-lock-flush start end))
+	       (font-lock-flush start end)
+	       (org-appear--hide-latex-with-preview elem))
 	      ((and (featurep 'org-fold)
 		    (eq elem-type 'link)
 		    (eq org-fold-core-style 'text-properties))
